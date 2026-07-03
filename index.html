@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Tetris Swipe Pure</title>
+    <style>
+        :root {
+            --bg-color: #0c0c0e;
+            --panel-color: rgba(255, 255, 255, 0.03);
+            --border-color: rgba(255, 255, 255, 0.08);
+            --accent-color: #00ffcc;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        header {
+            width: 100%;
+            max-width: 320px;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+        }
+
+        .stat-box {
+            background: var(--panel-color);
+            border: 1px solid var(--border-color);
+            padding: 6px 16px;
+            border-radius: 12px;
+            text-align: center;
+            min-width: 80px;
+        }
+
+        .stat-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #666;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        #score { color: var(--accent-color); }
+        #high-score { color: #ff007f; }
+
+        #game-container {
+            position: relative;
+            width: 90vw;
+            max-width: 340px;
+            aspect-ratio: 10 / 20;
+            touch-action: none; /* Prevents mobile browser bounce & scroll gestures */
+        }
+
+        canvas {
+            background: #000;
+            border-radius: 20px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.2);
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        .instruction-overlay {
+            text-align: center;
+            font-size: 11px;
+            color: #444;
+            margin-top: 15px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="stat-box">
+            <div class="stat-label">Score</div>
+            <div id="score" class="stat-value">0</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Best</div>
+            <div id="high-score" class="stat-value">0</div>
+        </div>
+    </header>
+
+    <div id="game-container">
+        <canvas id="tetris" width="240" height="480"></canvas>
+    </div>
+
+    <div class="instruction-overlay">
+        Tap to rotate • Swipe to move • Flick down to drop
+    </div>
+
+<script>
+const canvas = document.getElementById('tetris');
+const context = canvas.getContext('2d');
+context.scale(20, 20);
+
+const arena = createMatrix(12, 24);
+const colors = [null, '#ff0055', '#00ffcc', '#33ff00', '#ffcc00', '#ff00ff', '#0066ff', '#ff6600'];
+const pieces = 'ZISOTJL';
+
+let highScore = localStorage.getItem('tetris-high') || 0;
+document.getElementById('high-score').innerText = highScore;
+
+const player = { pos: {x: 0, y: 0}, matrix: null, score: 0 };
+
+function createMatrix(w, h) {
+    const matrix = [];
+    while (h--) matrix.push(new Array(w).fill(0));
+    return matrix;
+}
+
+function createPiece(type) {
+    if (type === 'T') return [[0,0,0],[5,5,5],[0,5,0]];
+    if (type === 'O') return [[4,4],[4,4]];
+    if (type === 'L') return [[0,0,7],[7,7,7],[0,0,0]];
+    if (type === 'J') return [[6,0,0],[6,6,6],[0,0,0]];
+    if (type === 'I') return [[0,0,0,0],[2,2,2,2],[0,0,0,0],[0,0,0,0]];
+    if (type === 'S') return [[0,3,3],[3,3,0],[0,0,0]];
+    if (type === 'Z') return [[1,1,0],[0,1,1],[0,0,0]];
+}
+
+function collide(arena, player) {
+    const [m, o] = [player.matrix, player.pos];
+    for (let y = 0; y < m.length; ++y) {
+        for (let x = 0; x < m[y].length; ++x) {
+            if (m[y][x] !== 0 && (arena[y + o.y] && arena[y + o.y][x + o.x]) !== 0) return true;
+        }
+    }
+    return false;
+}
+
+function arenaSweep() {
+    let rowCount = 1;
+    outer: for (let y = arena.length - 1; y > 0; --y) {
+        for (let x = 0; x < arena[y].length; ++x) {
+            if (arena[y][x] === 0) continue outer;
+        }
+        const row = arena.splice(y, 1)[0].fill(0);
+        arena.unshift(row);
+        ++y;
+        player.score += rowCount * 10;
+        rowCount *= 2;
+    }
+    updateScoreUI();
+}
+
+function updateScoreUI() {
+    document.getElementById('score').innerText = player.score;
+    if (player.score > highScore) {
+        highScore = player.score;
+        localStorage.setItem('tetris-high', highScore);
+        document.getElementById('high-score').innerText = highScore;
+    }
+}
+
+function drawMatrix(matrix, offset, isGhost = false) {
+    matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                if (isGhost) {
+                    context.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+                    context.lineWidth = 0.08;
+                    context.strokeRect(x + offset.x + 0.05, y + offset.y + 0.05, 0.9, 0.9);
+                } else {
+                    context.fillStyle = colors[value];
+                    context.fillRect(x + offset.x, y + offset.y, 1, 1);
+                    context.fillStyle = 'rgba(255,255,255,0.12)';
+                    context.fillRect(x + offset.x, y + offset.y, 1, 0.15);
+                }
+            }
+        });
+    });
+}
+
+function getGhostPosition() {
+    const ghost = { pos: { x: player.pos.x, y: player.pos.y }, matrix: player.matrix };
+    while (!collide(arena, ghost)) { ghost.pos.y++; }
+    ghost.pos.y--;
+    return ghost.pos;
+}
+
+function draw() {
+    context.fillStyle = '#0c0c0e';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    drawMatrix(arena, {x: 0, y: 0});
+    drawMatrix(player.matrix, getGhostPosition(), true);
+    drawMatrix(player.matrix, player.pos);
+}
+
+function merge(arena, player) {
+    player.matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) arena[y + player.pos.y][x + player.pos.x] = value;
+        });
+    });
+}
+
+function rotate(matrix) {
+    for (let y = 0; y < matrix.length; ++y) {
+        for (let x = 0; x < y; ++x) {
+            [matrix[x][y], matrix[y][x]] = [matrix[y][x], matrix[x][y]];
+        }
+    }
+    matrix.forEach(row => row.reverse());
+}
+
+function movePlayer(offset) {
+    player.pos.x += offset;
+    if (collide(arena, player)) player.pos.x -= offset;
+}
+
+function playerReset() {
+    player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
+    player.pos.y = 0;
+    player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
+    if (collide(arena, player)) {
+        arena.forEach(row => row.fill(0));
+        player.score = 0;
+        updateScoreUI();
+    }
+}
+
+function playerDrop() {
+    player.pos.y++;
+    if (collide(arena, player)) {
+        player.pos.y--;
+        merge(arena, player);
+        playerReset();
+        arenaSweep();
+    }
+    dropCounter = 0;
+}
+
+function playerHardDrop() {
+    while (!collide(arena, player)) { player.pos.y++; }
+    player.pos.y--;
+    merge(arena, player);
+    playerReset();
+    arenaSweep();
+}
+
+function playerRotate() {
+    const pos = player.pos.x;
+    let offset = 1;
+    rotate(player.matrix);
+    while (collide(arena, player)) {
+        player.pos.x += offset;
+        offset = -(offset + (offset > 0 ? 1 : -1));
+        if (offset > player.matrix[0].length) {
+            rotate(player.matrix);
+            player.pos.x = pos;
+            return;
+        }
+    }
+}
+
+let dropCounter = 0;
+let dropInterval = 1000;
+let lastTime = 0;
+
+function update(time = 0) {
+    const deltaTime = time - lastTime;
+    lastTime = time;
+    dropCounter += deltaTime;
+    if (dropCounter > dropInterval) playerDrop();
+    draw();
+    requestAnimationFrame(update);
+}
+
+// --- Gesture Tracking Logic ---
+const container = document.getElementById('game-container');
+let touchStartX = 0;
+let touchStartY = 0;
+let lastDragX = 0;
+let lastDragY = 0;
+let isSwipeAction = false;
+
+const SWIPE_THRESHOLD = 25; // Minimum travel distance in pixels to trigger movement
+const HARD_DROP_SPEED = 0.8; // Velocity threshold for rapid downward flick
+
+container.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    lastDragX = touch.clientX;
+    lastDragY = touch.clientY;
+    isSwipeAction = false;
+}, { passive: false });
+
+container.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    
+    let diffX = touch.clientX - lastDragX;
+    let diffY = touch.clientY - lastDragY;
+
+    // Horizontal sliding calculation
+    if (Math.abs(touch.clientX - touchStartX) > SWIPE_THRESHOLD) {
+        isSwipeAction = true;
+        if (diffX > SWIPE_THRESHOLD / 1.5) {
+            movePlayer(1);
+            lastDragX = touch.clientX;
+        } else if (diffX < -SWIPE_THRESHOLD / 1.5) {
+            movePlayer(-1);
+            lastDragX = touch.clientX;
+        }
+    }
+
+    // Gentle vertical sliding calculation (Soft Drop)
+    if (diffY > SWIPE_THRESHOLD) {
+        isSwipeAction = true;
+        playerDrop();
+        lastDragY = touch.clientY;
+    }
+}, { passive: false });
+
+container.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    const touch = e.changedTouches[0];
+    
+    let totalDistY = touch.clientY - touchStartY;
+    let totalDistX = touch.clientX - touchStartX;
+    let elapsed = e.timeStamp - e.timeStamp; 
+
+    // Detect high-speed downward flick for immediate hard drop
+    if (totalDistY > 80 && Math.abs(totalDistX) < 60) {
+        playerHardDrop();
+    } 
+    // If user barely moved their thumb, count it as a rotational tap
+    else if (!isSwipeAction && Math.abs(totalDistX) < 10 && Math.abs(totalDistY) < 10) {
+        playerRotate();
+    }
+}, { passive: false });
+
+playerReset();
+update();
+</script>
+</body>
+</html>
