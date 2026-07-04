@@ -12,8 +12,10 @@
             --accent-color: #00ffcc;
         }
 
+        * { box-sizing: border-box; }
+
         body {
-            background-color: var(--bg-color);
+            background: radial-gradient(ellipse at 50% 20%, #17171b 0%, var(--bg-color) 70%);
             color: #fff;
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             margin: 0;
@@ -30,46 +32,91 @@
         }
 
         header {
-            width: 100%;
-            max-width: 320px;
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 15px;
+            width: 90vw;
+            max-width: 340px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 10px;
         }
 
         .stat-box {
             background: var(--panel-color);
             border: 1px solid var(--border-color);
-            padding: 6px 16px;
+            padding: 6px 4px;
             border-radius: 12px;
             text-align: center;
-            min-width: 80px;
         }
 
         .stat-label {
-            font-size: 9px;
+            font-size: 8px;
             text-transform: uppercase;
-            letter-spacing: 2px;
+            letter-spacing: 1.5px;
             color: #666;
         }
 
         .stat-value {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 700;
+            display: inline-block;
         }
 
         #score { color: var(--accent-color); }
         #high-score { color: #ff007f; }
+        #level { color: #ffcc00; }
+        #lines { color: #0af; }
+
+        @keyframes pulse {
+            0% { transform: scale(1.35); }
+            100% { transform: scale(1); }
+        }
+        .stat-value.pulse { animation: pulse 280ms cubic-bezier(.2,1.4,.4,1); }
+
+        .side-panels {
+            width: 90vw;
+            max-width: 340px;
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            gap: 8px;
+        }
+
+        .panel {
+            background: var(--panel-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 6px 8px;
+        }
+
+        .panel-label {
+            font-size: 8px;
+            letter-spacing: 1.5px;
+            color: #666;
+            text-transform: uppercase;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+
+        .slot-row { display: flex; gap: 6px; align-items: flex-end; }
+
+        .mini-canvas {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            transition: transform 90ms ease;
+            cursor: pointer;
+        }
+        .mini-canvas:active { transform: scale(0.88); }
+        .mini-small { opacity: 0.6; }
 
         #game-container {
             position: relative;
             width: 90vw;
             max-width: 340px;
-            aspect-ratio: 10 / 20;
-            touch-action: none; /* Prevents mobile browser bounce & scroll gestures */
+            aspect-ratio: 12 / 24;
+            touch-action: none;
         }
 
-        canvas {
+        canvas#tetris {
             background: #000;
             border-radius: 20px;
             box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 1px rgba(255, 255, 255, 0.2);
@@ -80,11 +127,12 @@
 
         .instruction-overlay {
             text-align: center;
-            font-size: 11px;
+            font-size: 10px;
             color: #444;
             margin-top: 15px;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
             text-transform: uppercase;
+            max-width: 300px;
         }
     </style>
 </head>
@@ -99,14 +147,40 @@
             <div class="stat-label">Best</div>
             <div id="high-score" class="stat-value">0</div>
         </div>
+        <div class="stat-box">
+            <div class="stat-label">Level</div>
+            <div id="level" class="stat-value">1</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Lines</div>
+            <div id="lines" class="stat-value">0</div>
+        </div>
     </header>
+
+    <div class="side-panels">
+        <div class="panel">
+            <div class="panel-label">Hold</div>
+            <div class="slot-row">
+                <canvas id="hold0" class="mini-canvas" width="56" height="56"></canvas>
+                <canvas id="hold1" class="mini-canvas" width="56" height="56"></canvas>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-label">Next</div>
+            <div class="slot-row">
+                <canvas id="next0" class="mini-canvas" width="44" height="44"></canvas>
+                <canvas id="next1" class="mini-canvas mini-small" width="34" height="34"></canvas>
+                <canvas id="next2" class="mini-canvas mini-small" width="34" height="34"></canvas>
+            </div>
+        </div>
+    </div>
 
     <div id="game-container">
         <canvas id="tetris" width="240" height="480"></canvas>
     </div>
 
     <div class="instruction-overlay">
-        Tap to rotate • Swipe to move • Flick down to drop
+        Tap: rotate • Slide: move • Flick down: drop • Swipe up: hold
     </div>
 
 <script>
@@ -114,14 +188,41 @@ const canvas = document.getElementById('tetris');
 const context = canvas.getContext('2d');
 context.scale(20, 20);
 
-const arena = createMatrix(12, 24);
-const colors = [null, '#ff0055', '#00ffcc', '#33ff00', '#ffcc00', '#ff00ff', '#0066ff', '#ff6600'];
+const COLS = 12, ROWS = 24;
+const arena = createMatrix(COLS, ROWS);
 const pieces = 'ZISOTJL';
+const NEON = ['#ff0055', '#00ffcc', '#33ff00', '#ffcc00', '#ff00ff', '#0066ff', '#ff6600', '#ff3377', '#00e5ff', '#c400ff'];
 
-let highScore = localStorage.getItem('tetris-high') || 0;
+let highScore = parseInt(localStorage.getItem('tetris-high') || '0', 10);
 document.getElementById('high-score').innerText = highScore;
 
-const player = { pos: {x: 0, y: 0}, matrix: null, score: 0 };
+const player = { pos: { x: 0, y: 0 }, matrix: null, score: 0, type: null, color: null, spawnTime: 0 };
+
+let state = 'playing'; // playing | clearing | gameover
+let clearingRows = [];
+let clearStartTime = 0;
+const CLEAR_DURATION = 320;
+
+let combo = -1;
+let level = 1;
+let linesCleared = 0;
+let dropInterval = 1000;
+let dropCounter = 0;
+let lastTime = 0;
+
+let holdSlots = [null, null];
+let canHold = true;
+let holdCycle = 0;
+
+let queue = [];
+let bagQueue = [];
+let lastPieceColor = null;
+
+let particles = [];
+let floatingTexts = [];
+let shake = 0;
+let lockFlashData = null;
+const LOCK_FLASH_DURATION = 180;
 
 function createMatrix(w, h) {
     const matrix = [];
@@ -129,14 +230,47 @@ function createMatrix(w, h) {
     return matrix;
 }
 
-function createPiece(type) {
-    if (type === 'T') return [[0,0,0],[5,5,5],[0,5,0]];
-    if (type === 'O') return [[4,4],[4,4]];
-    if (type === 'L') return [[0,0,7],[7,7,7],[0,0,0]];
-    if (type === 'J') return [[6,0,0],[6,6,6],[0,0,0]];
-    if (type === 'I') return [[0,0,0,0],[2,2,2,2],[0,0,0,0],[0,0,0,0]];
-    if (type === 'S') return [[0,3,3],[3,3,0],[0,0,0]];
-    if (type === 'Z') return [[1,1,0],[0,1,1],[0,0,0]];
+function shapeTemplate(type) {
+    switch (type) {
+        case 'T': return [[0,0,0],[1,1,1],[0,1,0]];
+        case 'O': return [[1,1],[1,1]];
+        case 'L': return [[0,0,1],[1,1,1],[0,0,0]];
+        case 'J': return [[1,0,0],[1,1,1],[0,0,0]];
+        case 'I': return [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]];
+        case 'S': return [[0,1,1],[1,1,0],[0,0,0]];
+        case 'Z': return [[1,1,0],[0,1,1],[0,0,0]];
+    }
+}
+
+function randomColor() {
+    let c;
+    do { c = NEON[Math.floor(Math.random() * NEON.length)]; } while (c === lastPieceColor && NEON.length > 1);
+    lastPieceColor = c;
+    return c;
+}
+
+function makePieceObj(type) {
+    return { type, color: randomColor() };
+}
+
+function refillBag() {
+    const bag = pieces.split('');
+    for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+    }
+    bagQueue.push(...bag);
+}
+
+function ensureQueue() {
+    while (queue.length < 4) {
+        if (bagQueue.length === 0) refillBag();
+        queue.push(makePieceObj(bagQueue.shift()));
+    }
+}
+
+function buildMatrix(pieceObj) {
+    return shapeTemplate(pieceObj.type).map(row => row.map(v => v ? pieceObj.color : 0));
 }
 
 function collide(arena, player) {
@@ -147,64 +281,6 @@ function collide(arena, player) {
         }
     }
     return false;
-}
-
-function arenaSweep() {
-    let rowCount = 1;
-    outer: for (let y = arena.length - 1; y > 0; --y) {
-        for (let x = 0; x < arena[y].length; ++x) {
-            if (arena[y][x] === 0) continue outer;
-        }
-        const row = arena.splice(y, 1)[0].fill(0);
-        arena.unshift(row);
-        ++y;
-        player.score += rowCount * 10;
-        rowCount *= 2;
-    }
-    updateScoreUI();
-}
-
-function updateScoreUI() {
-    document.getElementById('score').innerText = player.score;
-    if (player.score > highScore) {
-        highScore = player.score;
-        localStorage.setItem('tetris-high', highScore);
-        document.getElementById('high-score').innerText = highScore;
-    }
-}
-
-function drawMatrix(matrix, offset, isGhost = false) {
-    matrix.forEach((row, y) => {
-        row.forEach((value, x) => {
-            if (value !== 0) {
-                if (isGhost) {
-                    context.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-                    context.lineWidth = 0.08;
-                    context.strokeRect(x + offset.x + 0.05, y + offset.y + 0.05, 0.9, 0.9);
-                } else {
-                    context.fillStyle = colors[value];
-                    context.fillRect(x + offset.x, y + offset.y, 1, 1);
-                    context.fillStyle = 'rgba(255,255,255,0.12)';
-                    context.fillRect(x + offset.x, y + offset.y, 1, 0.15);
-                }
-            }
-        });
-    });
-}
-
-function getGhostPosition() {
-    const ghost = { pos: { x: player.pos.x, y: player.pos.y }, matrix: player.matrix };
-    while (!collide(arena, ghost)) { ghost.pos.y++; }
-    ghost.pos.y--;
-    return ghost.pos;
-}
-
-function draw() {
-    context.fillStyle = '#0c0c0e';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    drawMatrix(arena, {x: 0, y: 0});
-    drawMatrix(player.matrix, getGhostPosition(), true);
-    drawMatrix(player.matrix, player.pos);
 }
 
 function merge(arena, player) {
@@ -224,42 +300,62 @@ function rotate(matrix) {
     matrix.forEach(row => row.reverse());
 }
 
-function movePlayer(offset) {
-    player.pos.x += offset;
-    if (collide(arena, player)) player.pos.x -= offset;
+function spawnPiece(pieceObj) {
+    player.type = pieceObj.type;
+    player.color = pieceObj.color;
+    player.matrix = buildMatrix(pieceObj);
+    player.pos.y = 0;
+    player.pos.x = (COLS / 2 | 0) - (player.matrix[0].length / 2 | 0);
+    player.spawnTime = performance.now();
+    canHold = true;
+    if (collide(arena, player)) {
+        triggerGameOver();
+    }
 }
 
 function playerReset() {
-    player.matrix = createPiece(pieces[pieces.length * Math.random() | 0]);
-    player.pos.y = 0;
-    player.pos.x = (arena[0].length / 2 | 0) - (player.matrix[0].length / 2 | 0);
-    if (collide(arena, player)) {
-        arena.forEach(row => row.fill(0));
-        player.score = 0;
-        updateScoreUI();
+    ensureQueue();
+    const next = queue.shift();
+    ensureQueue();
+    spawnPiece(next);
+    renderNextPreviews();
+}
+
+function moveTowards(targetX) {
+    targetX = Math.max(0, Math.min(COLS - (player.matrix ? player.matrix[0].length : 0), targetX));
+    const dir = targetX > player.pos.x ? 1 : -1;
+    while (player.pos.x !== targetX) {
+        player.pos.x += dir;
+        if (collide(arena, player)) { player.pos.x -= dir; break; }
     }
 }
 
 function playerDrop() {
+    if (state !== 'playing') return;
     player.pos.y++;
     if (collide(arena, player)) {
         player.pos.y--;
-        merge(arena, player);
-        playerReset();
-        arenaSweep();
+        lockPiece();
     }
     dropCounter = 0;
 }
 
 function playerHardDrop() {
-    while (!collide(arena, player)) { player.pos.y++; }
-    player.pos.y--;
-    merge(arena, player);
-    playerReset();
-    arenaSweep();
+    if (state !== 'playing') return;
+    let dist = 0;
+    while (!collide(arena, player)) { player.pos.y++; dist++; }
+    player.pos.y--; dist--;
+    if (dist > 0) {
+        shake = Math.min(20, shake + 8);
+        player.score += dist * 2;
+        updateScoreUI();
+    }
+    lockPiece();
+    dropCounter = 0;
 }
 
 function playerRotate() {
+    if (state !== 'playing') return;
     const pos = player.pos.x;
     let offset = 1;
     rotate(player.matrix);
@@ -274,85 +370,424 @@ function playerRotate() {
     }
 }
 
-let dropCounter = 0;
-let dropInterval = 1000;
-let lastTime = 0;
+function doHold(slotIndex) {
+    if (!canHold || state !== 'playing') return;
+    const current = { type: player.type, color: player.color };
+    if (holdSlots[slotIndex] == null) {
+        holdSlots[slotIndex] = current;
+        ensureQueue();
+        const next = queue.shift();
+        ensureQueue();
+        spawnPiece(next);
+    } else {
+        const stored = holdSlots[slotIndex];
+        holdSlots[slotIndex] = current;
+        spawnPiece(stored);
+    }
+    canHold = false;
+    renderHoldPreviews();
+    renderNextPreviews();
+}
+
+function lockPiece() {
+    merge(arena, player);
+    lockFlashData = { matrix: player.matrix, pos: { ...player.pos }, startTime: performance.now() };
+
+    const fullRows = [];
+    for (let y = 0; y < arena.length; y++) {
+        if (arena[y].every(v => v !== 0)) fullRows.push(y);
+    }
+
+    if (fullRows.length > 0) {
+        state = 'clearing';
+        clearingRows = fullRows;
+        clearStartTime = performance.now();
+        spawnParticlesForRows(fullRows);
+    } else {
+        combo = -1;
+        playerReset();
+    }
+}
+
+function finalizeClear() {
+    clearingRows.sort((a, b) => a - b).forEach(y => {
+        const row = arena.splice(y, 1)[0].fill(0);
+        arena.unshift(row);
+    });
+
+    const n = clearingRows.length;
+    combo++;
+    linesCleared += n;
+
+    const newLevel = Math.floor(linesCleared / 10) + 1;
+    if (newLevel !== level) {
+        level = newLevel;
+        dropInterval = Math.max(120, 1000 - (level - 1) * 70);
+        floatingTexts.push(makeFloatText('LEVEL ' + level, '#00ffcc', 150));
+    }
+
+    const base = [0, 100, 300, 500, 800][n] || 800;
+    let points = base * level;
+    if (combo > 0) points += combo * 50 * level;
+    player.score += points;
+    updateScoreUI();
+    updateLevelLinesUI();
+
+    let label = '+' + points;
+    if (n === 4) {
+        floatingTexts.push(makeFloatText('TETRIS!', '#ff00ff', 190));
+        shake = Math.min(24, shake + 16);
+    }
+    if (combo > 0) label += '  COMBO x' + (combo + 1);
+    floatingTexts.push(makeFloatText(label, '#ffcc00', 240));
+
+    clearingRows = [];
+    state = 'playing';
+    playerReset();
+}
+
+function triggerGameOver() {
+    state = 'gameover';
+    floatingTexts.push(makeFloatText('GAME OVER', '#ff0055', 220, 1e9, 0));
+    floatingTexts.push(makeFloatText('tap to restart', '#999', 250, 1e9, 0));
+}
+
+function restartGame() {
+    arena.forEach(row => row.fill(0));
+    player.score = 0;
+    combo = -1;
+    level = 1;
+    linesCleared = 0;
+    dropInterval = 1000;
+    holdSlots = [null, null];
+    canHold = true;
+    queue = [];
+    bagQueue = [];
+    particles = [];
+    floatingTexts = [];
+    shake = 0;
+    lockFlashData = null;
+    updateScoreUI();
+    updateLevelLinesUI();
+    renderHoldPreviews();
+    state = 'playing';
+    playerReset();
+}
+
+function updateScoreUI() {
+    const el = document.getElementById('score');
+    el.innerText = player.score;
+    el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
+    if (player.score > highScore) {
+        highScore = player.score;
+        localStorage.setItem('tetris-high', highScore);
+        const hs = document.getElementById('high-score');
+        hs.innerText = highScore;
+        hs.classList.remove('pulse'); void hs.offsetWidth; hs.classList.add('pulse');
+    }
+}
+
+function updateLevelLinesUI() {
+    document.getElementById('level').innerText = level;
+    document.getElementById('lines').innerText = linesCleared;
+}
+
+function makeFloatText(text, color, y, maxLife = 1300, vy = -25) {
+    return { text, color, x: 120, y, life: maxLife, maxLife, vy };
+}
+
+function spawnParticlesForRows(rows) {
+    rows.forEach(y => {
+        for (let x = 0; x < arena[y].length; x++) {
+            const color = arena[y][x] || '#ffffff';
+            for (let i = 0; i < 3; i++) {
+                particles.push({
+                    x: x + 0.5, y: y + 0.5,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: (Math.random() - 2) * 4,
+                    life: 500 + Math.random() * 300,
+                    maxLife: 800,
+                    color,
+                    size: 0.15 + Math.random() * 0.15
+                });
+            }
+        }
+    });
+}
+
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= dt;
+        p.x += p.vx * dt / 1000;
+        p.y += p.vy * dt / 1000;
+        p.vy += 8 * dt / 1000;
+        if (p.life <= 0) particles.splice(i, 1);
+    }
+}
+
+function updateFloatingTexts(dt) {
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+        const t = floatingTexts[i];
+        t.life -= dt;
+        t.y += (t.vy || 0) * dt / 1000;
+        if (t.life <= 0) floatingTexts.splice(i, 1);
+    }
+}
+
+function getGhostPosition() {
+    const ghost = { pos: { x: player.pos.x, y: player.pos.y }, matrix: player.matrix };
+    while (!collide(arena, ghost)) { ghost.pos.y++; }
+    ghost.pos.y--;
+    return ghost.pos;
+}
+
+function drawMatrix(matrix, offset, isGhost = false) {
+    matrix.forEach((row, y) => {
+        row.forEach((value, x) => {
+            if (value !== 0) {
+                if (isGhost) {
+                    context.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+                    context.lineWidth = 0.07;
+                    context.strokeRect(x + offset.x + 0.05, y + offset.y + 0.05, 0.9, 0.9);
+                } else {
+                    context.fillStyle = value;
+                    context.fillRect(x + offset.x, y + offset.y, 1, 1);
+                    context.fillStyle = 'rgba(255,255,255,0.18)';
+                    context.fillRect(x + offset.x, y + offset.y, 1, 0.15);
+                    context.fillStyle = 'rgba(0,0,0,0.15)';
+                    context.fillRect(x + offset.x, y + offset.y + 0.85, 1, 0.15);
+                }
+            }
+        });
+    });
+}
+
+function drawMatrixMask(matrix, offset) {
+    matrix.forEach((row, y) => {
+        row.forEach((v, x) => { if (v !== 0) context.fillRect(x + offset.x, y + offset.y, 1, 1); });
+    });
+}
+
+function draw(time) {
+    context.save();
+    const sx = shake ? (Math.random() - 0.5) * shake / 20 : 0;
+    const sy = shake ? (Math.random() - 0.5) * shake / 20 : 0;
+    context.translate(sx, sy);
+
+    context.fillStyle = '#0c0c0e';
+    context.fillRect(-1, -1, COLS + 2, ROWS + 2);
+
+    drawMatrix(arena, { x: 0, y: 0 });
+
+    if (state === 'clearing') {
+        const progress = Math.min(1, (time - clearStartTime) / CLEAR_DURATION);
+        context.globalAlpha = 1 - progress;
+        context.fillStyle = '#ffffff';
+        clearingRows.forEach(y => context.fillRect(0, y, COLS, 1));
+        context.globalAlpha = 1;
+    }
+
+    if (state === 'playing' && player.matrix) {
+        drawMatrix(player.matrix, getGhostPosition(), true);
+        const spawnAge = time - (player.spawnTime || 0);
+        context.globalAlpha = Math.min(1, spawnAge / 150);
+        drawMatrix(player.matrix, player.pos);
+        context.globalAlpha = 1;
+    }
+
+    if (lockFlashData) {
+        const age = time - lockFlashData.startTime;
+        if (age < LOCK_FLASH_DURATION) {
+            context.globalAlpha = (1 - age / LOCK_FLASH_DURATION) * 0.55;
+            context.fillStyle = '#ffffff';
+            drawMatrixMask(lockFlashData.matrix, lockFlashData.pos);
+            context.globalAlpha = 1;
+        } else {
+            lockFlashData = null;
+        }
+    }
+
+    particles.forEach(p => {
+        context.globalAlpha = Math.max(0, p.life / p.maxLife);
+        context.fillStyle = p.color;
+        context.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    });
+    context.globalAlpha = 1;
+
+    if (state === 'gameover') {
+        context.fillStyle = 'rgba(0,0,0,0.55)';
+        context.fillRect(0, 0, COLS, ROWS);
+    }
+
+    context.restore();
+
+    if (floatingTexts.length) {
+        context.save();
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.textAlign = 'center';
+        floatingTexts.forEach(t => {
+            context.globalAlpha = Math.max(0, t.life / t.maxLife);
+            context.fillStyle = t.color;
+            context.font = 'bold 20px -apple-system, sans-serif';
+            context.fillText(t.text, t.x, t.y);
+        });
+        context.globalAlpha = 1;
+        context.restore();
+    }
+}
+
+function renderMiniCanvas(id, pieceObj) {
+    const cvs = document.getElementById(id);
+    const ctx = cvs.getContext('2d');
+    const W = cvs.width, H = cvs.height;
+    ctx.clearRect(0, 0, W, H);
+    if (!pieceObj) return;
+    const shape = shapeTemplate(pieceObj.type);
+    let minR = 99, maxR = -1, minC = 99, maxC = -1;
+    for (let r = 0; r < shape.length; r++) {
+        for (let c = 0; c < shape[r].length; c++) {
+            if (shape[r][c]) {
+                minR = Math.min(minR, r); maxR = Math.max(maxR, r);
+                minC = Math.min(minC, c); maxC = Math.max(maxC, c);
+            }
+        }
+    }
+    const rows = maxR - minR + 1, cols = maxC - minC + 1;
+    const cell = Math.min((W - 8) / cols, (H - 8) / rows);
+    const offX = (W - cols * cell) / 2, offY = (H - rows * cell) / 2;
+    ctx.fillStyle = pieceObj.color;
+    for (let r = minR; r <= maxR; r++) {
+        for (let c = minC; c <= maxC; c++) {
+            if (shape[r][c]) ctx.fillRect(offX + (c - minC) * cell + 1, offY + (r - minR) * cell + 1, cell - 2, cell - 2);
+        }
+    }
+}
+
+function renderHoldPreviews() {
+    renderMiniCanvas('hold0', holdSlots[0]);
+    renderMiniCanvas('hold1', holdSlots[1]);
+}
+
+function renderNextPreviews() {
+    renderMiniCanvas('next0', queue[0]);
+    renderMiniCanvas('next1', queue[1]);
+    renderMiniCanvas('next2', queue[2]);
+}
+
+['hold0', 'hold1'].forEach((id, idx) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); doHold(idx); }, { passive: false });
+    el.addEventListener('click', (e) => { e.stopPropagation(); doHold(idx); });
+});
 
 function update(time = 0) {
     const deltaTime = time - lastTime;
     lastTime = time;
-    dropCounter += deltaTime;
-    if (dropCounter > dropInterval) playerDrop();
-    draw();
+
+    if (state === 'playing') {
+        dropCounter += deltaTime;
+        if (dropCounter > dropInterval) playerDrop();
+    } else if (state === 'clearing') {
+        if (time - clearStartTime >= CLEAR_DURATION) finalizeClear();
+    }
+
+    updateParticles(deltaTime);
+    updateFloatingTexts(deltaTime);
+    if (shake > 0) shake = Math.max(0, shake - deltaTime * 0.05);
+
+    draw(time);
     requestAnimationFrame(update);
 }
 
 // --- Gesture Tracking Logic ---
 const container = document.getElementById('game-container');
-let touchStartX = 0;
-let touchStartY = 0;
-let lastDragX = 0;
-let lastDragY = 0;
-let isSwipeAction = false;
-
-const SWIPE_THRESHOLD = 25; // Minimum travel distance in pixels to trigger movement
-const HARD_DROP_SPEED = 0.8; // Velocity threshold for rapid downward flick
+let gesture = null;
 
 container.addEventListener('touchstart', (e) => {
     e.preventDefault();
-    const touch = e.touches[0];
-    touchStartX = touch.clientX;
-    touchStartY = touch.clientY;
-    lastDragX = touch.clientX;
-    lastDragY = touch.clientY;
-    isSwipeAction = false;
+    if (state === 'gameover') { restartGame(); return; }
+    const t = e.touches[0];
+    const rect = container.getBoundingClientRect();
+    gesture = {
+        startX: t.clientX,
+        startY: t.clientY,
+        startTime: e.timeStamp,
+        cellW: rect.width / COLS,
+        cellH: rect.height / ROWS,
+        startCol: player.pos.x,
+        consumedDownRows: 0,
+        moved: false
+    };
 }, { passive: false });
 
 container.addEventListener('touchmove', (e) => {
     e.preventDefault();
-    const touch = e.touches[0];
-    
-    let diffX = touch.clientX - lastDragX;
-    let diffY = touch.clientY - lastDragY;
+    if (!gesture || state !== 'playing') return;
+    const t = e.touches[0];
+    const dx = t.clientX - gesture.startX;
+    const dy = t.clientY - gesture.startY;
 
-    // Horizontal sliding calculation
-    if (Math.abs(touch.clientX - touchStartX) > SWIPE_THRESHOLD) {
-        isSwipeAction = true;
-        if (diffX > SWIPE_THRESHOLD / 1.5) {
-            movePlayer(1);
-            lastDragX = touch.clientX;
-        } else if (diffX < -SWIPE_THRESHOLD / 1.5) {
-            movePlayer(-1);
-            lastDragX = touch.clientX;
-        }
+    const deltaCols = Math.round(dx / gesture.cellW);
+    const targetX = gesture.startCol + deltaCols;
+    if (targetX !== player.pos.x) {
+        moveTowards(targetX);
+        gesture.moved = true;
     }
 
-    // Gentle vertical sliding calculation (Soft Drop)
-    if (diffY > SWIPE_THRESHOLD) {
-        isSwipeAction = true;
-        playerDrop();
-        lastDragY = touch.clientY;
+    if (dy > 0) {
+        const downRows = Math.floor(dy / gesture.cellH);
+        if (downRows > gesture.consumedDownRows) {
+            const steps = downRows - gesture.consumedDownRows;
+            for (let i = 0; i < steps && state === 'playing'; i++) playerDrop();
+            gesture.consumedDownRows = downRows;
+            gesture.moved = true;
+        }
     }
 }, { passive: false });
 
 container.addEventListener('touchend', (e) => {
     e.preventDefault();
-    const touch = e.changedTouches[0];
-    
-    let totalDistY = touch.clientY - touchStartY;
-    let totalDistX = touch.clientX - touchStartX;
-    let elapsed = e.timeStamp - e.timeStamp; 
+    if (!gesture) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - gesture.startX;
+    const dy = t.clientY - gesture.startY;
+    const dt = Math.max(1, e.timeStamp - gesture.startTime);
+    const absDx = Math.abs(dx), absDy = Math.abs(dy);
 
-    // Detect high-speed downward flick for immediate hard drop
-    if (totalDistY > 80 && Math.abs(totalDistX) < 60) {
-        playerHardDrop();
-    } 
-    // If user barely moved their thumb, count it as a rotational tap
-    else if (!isSwipeAction && Math.abs(totalDistX) < 10 && Math.abs(totalDistY) < 10) {
-        playerRotate();
+    if (state === 'playing') {
+        if (dy < -40 && absDy > absDx * 1.3) {
+            const slot = holdCycle; holdCycle = 1 - holdCycle;
+            doHold(slot);
+        } else if (dy > 60 && absDy > absDx * 1.5 && (dy / dt) > 0.55) {
+            playerHardDrop();
+        } else if (!gesture.moved && absDx < 12 && absDy < 12) {
+            playerRotate();
+        }
     }
+    gesture = null;
 }, { passive: false });
 
+// --- Keyboard support (desktop) ---
+document.addEventListener('keydown', (e) => {
+    if (state === 'gameover') {
+        if (e.key === 'Enter' || e.key === ' ') restartGame();
+        return;
+    }
+    if (state !== 'playing') return;
+    switch (e.key) {
+        case 'ArrowLeft': moveTowards(player.pos.x - 1); break;
+        case 'ArrowRight': moveTowards(player.pos.x + 1); break;
+        case 'ArrowDown': playerDrop(); break;
+        case 'ArrowUp': playerRotate(); break;
+        case ' ': e.preventDefault(); playerHardDrop(); break;
+        case 'c': case 'C': { const slot = holdCycle; holdCycle = 1 - holdCycle; doHold(slot); break; }
+        case '1': doHold(0); break;
+        case '2': doHold(1); break;
+    }
+});
+
+renderHoldPreviews();
 playerReset();
 update();
 </script>
