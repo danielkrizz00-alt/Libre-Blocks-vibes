@@ -322,9 +322,14 @@ function playerReset() {
 }
 
 function moveTowards(targetX) {
-    targetX = Math.max(0, Math.min(COLS - (player.matrix ? player.matrix[0].length : 0), targetX));
+    // Don't pre-clamp using the piece's padded bounding-box width — depending on
+    // rotation, the actual blocks can be off-center within that box (e.g. L/I
+    // pieces can have an empty column on one side), which used to stop the
+    // piece short of the wall even though it could legally go further.
+    // collide() checks real filled cells, so let it decide the true limit.
     const dir = targetX > player.pos.x ? 1 : -1;
-    while (player.pos.x !== targetX) {
+    let guard = COLS * 2; // safety cap, collide() will normally break the loop first
+    while (player.pos.x !== targetX && guard-- > 0) {
         player.pos.x += dir;
         if (collide(arena, player)) { player.pos.x -= dir; break; }
     }
